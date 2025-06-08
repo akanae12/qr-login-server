@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>QR 로그인 발급 & 스캔</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 420px; margin: auto; padding: 20px; text-align: center; background: #f9f9f9; }
+    input, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 1em; }
+    #qrcode { margin: 15px auto; }
+    video { width: 100%; max-width: 360px; border: 1px solid #ccc; margin-top: 20px; }
+    #status, #scanStatus { margin-top: 15px; font-weight: bold; min-height: 1.5em; }
+  </style>
+</head>
+<body>
+
+  <h2>QR 로그인 발급</h2>
+
+  <input id="userId" type="text" placeholder="사용자 ID 입력" />
+  <button id="issueBtn">QR 발급하기</button>
+  <div id="qrcode"></div>
+  <div id="status"></div>
+
+  <hr />
+
+  <h2>QR 코드 스캔 로그인</h2>
+  <video id="video" autoplay playsinline muted></video>
+  <div id="scanStatus">QR 코드를 카메라에 비춰 로그인하세요</div>
+
+  <script>
+    const SERVER_URL = 'http://127.0.0.1:3000';
+
+    // 발급
+    const userIdInput = document.getElementById('userId');
+    const issueBtn = document.getElementById('issueBtn');
+    const qrcodeDiv = document.getElementById('qrcode');
+    const statusDiv = document.getElementById('status');
+
+    issueBtn.onclick = () => {
+      const userId = userIdInput.value.trim();
+      if (!userId) {
+        statusDiv.textContent = '사용자 ID를 입력하세요.';
+        return;
+      }
+
+      fetch(`${SERVER_URL}/api/issue-qr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.qrToken) {
+          const url = `${SERVER_URL}/qr-login?token=${encodeURIComponent(data.qrToken)}`;
+          new QRCode(qrcodeDiv, { text: url, width: 200, height: 200 });
+          statusDiv.textContent = 'QR 코드가 발급되었습니다.';
+        } else {
+          statusDiv.textContent = '발급 실패: ' + (data.error || '알 수 없음');
+        }
+      })
+      .catch(err => {
+        statusDiv.textContent = '서버 오류: ' + err.message;
+      });
+    };
+
+    // 스캔
+    const video = document.getElementById('video');
+    const scanStatus = document.getElementById('scanStatus');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let scanning = true;
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => {
+        video.srcObject = stream;
+        video.setAttribute('playsinline', true);
+        requestAnimationFrame(scanLoop);
+      })
+      .catch(err => {
+        scanStatus.textContent = '카메라 권한 필요';
+      });
+
+    function scanLoop() {
+      if (video.readyState === video.HAVE_ENOUGH_DATA && scanning) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code) {
+          scanning = false;
+          scanStatus.textContent = 'QR 인식됨, 로그인 중...';
+          fetch(code.data)
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                scanStatus.textContent = '로그인 성공!';
+              } else {
+                scanStatus.textContent = '로그인 실패: ' + (data.message || '');
+              }
+            })
+            .catch(err => {
+              scanStatus.textContent = '로그인 오류: ' + err.message;
+            })
+            .finally(() => {
+              setTimeout(() => {
+                scanning = true;
+                requestAnimationFrame(scanLoop);
+              }, 3000);
+            });
+        } else {
+          scanStatus.textContent = 'QR 코드를 카메라에 비추세요.';
+          requestAnimationFrame(scanLoop);
+        }
+      } else {
+        requestAnimationFrame(scanLoop);
+      }
+    }
+  </script>
+</body>
+</html>
