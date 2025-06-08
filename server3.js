@@ -5,6 +5,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 기본 경로 응답 추가
+app.get('/', (req, res) => {
+  res.send('서버 정상 작동 중입니다.');
+});
+
 const issuedTokens = new Map();  // token => userId
 const userInfos = new Map();     // userId => 사용자 정보 객체
 const userMedInfos = new Map();  // userId => 복약지시 객체
